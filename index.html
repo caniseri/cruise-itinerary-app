@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Cruise Itinerary</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Warm Neutrals (Slate, Stone, with Muted Teal accent) -->
+    <!-- Application Structure Plan: A tabbed interface with a vertical navigation bar for day selection. Clicking a day displays its itinerary in the main content area. This chunking of information by day prevents overload and aligns with the user's mental model of a trip. Day 4 includes a toggle to switch between the main plan and the Anguilla alternative. -->
+    <!-- Visualization & Content Choices: The core content is presented in a timeline of activity cards for clarity. Icons are used for quick recognition of cost/transport. A horizontal bar chart (Chart.js) is included to visualize estimated daily costs, providing a quick budget overview. This chart is interactive on hover. "MUST-DO" items are highlighted with a distinct tag to draw user attention to key experiences. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        .nav-button {
+            transition: all 0.3s ease;
+        }
+        .nav-button.active {
+            background-color: #0d9488; /* teal-600 */
+            color: white;
+            transform: translateX(4px);
+        }
+        .content-section {
+            display: none;
+        }
+        .content-section.active {
+            display: block;
+        }
+        .plan-toggle {
+            transition: background-color 0.3s ease;
+        }
+        .plan-toggle.active {
+            background-color: #0d9488; /* teal-600 */
+            color: white;
+        }
+        .must-do-tag {
+            background-color: #fde68a; /* amber-200 */
+            color: #a16207; /* amber-700 */
+            font-weight: 600;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-700">
+
+    <div class="container mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-slate-800">Caribbean Cruise Itinerary</h1>
+            <p class="mt-2 text-lg text-slate-500">Your day-by-day guide to an unforgettable vacation.</p>
+        </header>
+
+        <div class="flex flex-col md:flex-row md:space-x-8">
+            <!-- Navigation -->
+            <nav id="day-navigation" class="w-full md:w-1/4 lg:w-1/5 mb-8 md:mb-0">
+                <ul class="space-y-2"></ul>
+            </nav>
+
+            <!-- Main Content -->
+            <main id="itinerary-content" class="w-full md:w-3/4 lg:w-4/5">
+                <!-- Content sections for each day will be injected here by JS -->
+            </main>
+        </div>
+        
+        <!-- Summary Chart Section -->
+        <section class="mt-12 pt-8 border-t border-slate-200">
+            <h2 class="text-2xl font-bold text-center text-slate-800 mb-6">Estimated Daily Costs Overview</h2>
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                <div class="chart-container">
+                    <canvas id="costChart"></canvas>
+                </div>
+            </div>
+             <p class="text-center text-sm text-slate-500 mt-4">Hover over bars for cost details. Estimates are per person and exclude shopping.</p>
+        </section>
+    </div>
+
+    <script>
+        const itineraryData = {
+            4: {
+                port: "Philipsburg, St. Maarten",
+                arrival: "8:00 AM",
+                departure: "5:00 PM",
+                mainPlan: [
+                    { time: "8:30 AM – 10:30 AM", activity: "Front Street & Boardwalk", desc: "Stroll, duty-free shops, souvenirs, people-watch.", cost: "Free", transport: "Walk (15-20 min) or Water Taxi ($7-10 RT)", rec: "High Priority: Enjoy the vibrant atmosphere." },
+                    { time: "10:45 AM – 12:30 PM", activity: "Great Bay Beach", desc: "Relax, swim, chairs/umbrellas available.", cost: "Free (rentals extra)", transport: "Walk from Front Street", rec: "Great for an easy swim." },
+                    { time: "12:30 PM – 1:15 PM", activity: "Lunch", desc: "Local rotis, conch/fish sandwiches.", cost: "$-$$", transport: "Walk from beach", rec: "Authentic local flavors." },
+                    { time: "1:15 PM – 1:45 PM", activity: "Return to Cruise Terminal Area", desc: "Prepare for taxi.", cost: "", transport: "Walk/Water Taxi", rec: "Efficient transition." },
+                    { time: "1:45 PM – 3:15 PM", activity: "Maho Beach Plane-Spotting", desc: "Iconic jet-overhead views.", cost: "$ (taxi)", transport: "Taxi (~25-30 min each way, $20-30)", rec: "MUST-DO! Thrilling & photo-worthy.", isMustDo: true },
+                    { time: "3:15 PM – 3:45 PM", activity: "Taxi Back to Cruise Terminal", desc: "", cost: "", transport: "Taxi", rec: "" },
+                    { time: "4:00 PM", activity: "Return to Ship", desc: "Allow 1 hour buffer.", cost: "", transport: "", rec: "" }
+                ],
+                altPlan: [
+                    { time: "8:00 AM – 8:30 AM", activity: "Taxi to Marigot Ferry Terminal", desc: "Head to the French side for the ferry.", cost: "$ (taxi)", transport: "Taxi (~20-30 min, $25-35)", rec: "For Anguilla Day Trip." },
+                    { time: "8:30 AM – 9:00 AM", activity: "Ferry to Anguilla", desc: "Passport required for this short international trip.", cost: "$20-30 RT + tax", transport: "Ferry (20-25 min)", rec: "Scenic ride to pristine beaches." },
+                    { time: "9:30 AM – 3:00 PM", activity: "Anguilla Beach Hopping & Lunch", desc: "Visit world-famous beaches like Shoal Bay East or Rendezvous Bay.", cost: "$$$-$$$$", transport: "Taxi for the day ($50-100+)", rec: "MUST-DO! Secluded, stunning beaches.", isMustDo: true },
+                    { time: "3:00 PM – 3:30 PM", activity: "Ferry Back to Marigot", desc: "", cost: "", transport: "Ferry", rec: "" },
+                    { time: "3:30 PM – 4:00 PM", activity: "Taxi Back to Philipsburg Cruise Terminal", desc: "", cost: "", transport: "Taxi", rec: "" },
+                    { time: "4:00 PM", activity: "Return to Ship", desc: "Allow 1 hour buffer.", cost: "", transport: "", rec: "" }
+                ],
+                costEstimate: 65 // Estimated cost for Main Plan (excluding shopping)
+            },
+            5: {
+                port: "Castries, St. Lucia",
+                arrival: "9:00 AM",
+                departure: "6:00 PM",
+                mainPlan: [
+                    { time: "9:30 AM – 11:15 AM", activity: "Pigeon Island National Landmark", desc: "Light walking, fort ruins, great views over Rodney Bay.", cost: "Low-cost ($10 entry)", transport: "Taxi (15-20 min, $20-30 one way)", rec: "Great history and views." },
+                    { time: "11:15 AM – 11:30 AM", activity: "Travel to Castries Market", desc: "", cost: "", transport: "Taxi", rec: "" },
+                    { time: "11:30 AM – 12:30 PM", activity: "Castries Market & City Stroll", desc: "Local spices, crafts, snacks (accra/fried saltfish).", cost: "Free/$", transport: "Walkable", rec: "High Priority: Cultural immersion." },
+                    { time: "12:30 PM – 1:00 PM", activity: "Lunch in Castries", desc: "Local specialties.", cost: "$-$$", transport: "Walk", rec: "Try green fig & saltfish." },
+                    { time: "1:00 PM – 1:30 PM", activity: "Travel to Soufrière", desc: "", cost: "", transport: "Pre-booked excursion (1-1.5 hr drive)", rec: "Pre-book for efficiency." },
+                    { time: "1:30 PM – 4:00 PM", activity: "Soufrière Half-Day: Tet Paul & Sulphur Springs", desc: "Scenic Tet Paul hike (Pitons views) + Sulphur Springs mud baths.", cost: "$–$$", transport: "Guided shuttle/taxi", rec: "MUST-DO! Signature St. Lucia experience.", isMustDo: true },
+                    { time: "4:00 PM – 5:00 PM", activity: "Return to Castries Port", desc: "", cost: "", transport: "Guided shuttle/taxi", rec: "" },
+                    { time: "5:00 PM", activity: "Return to Ship", desc: "Allow 1 hour buffer.", cost: "", transport: "", rec: "" }
+                ],
+                costEstimate: 80 // Example estimate
+            },
+            6: {
+                port: "Roseau, Dominica",
+                arrival: "8:00 AM",
+                departure: "6:00 PM",
+                mainPlan: [
+                    { time: "8:15 AM – 10:15 AM", activity: "Roseau & Morne Bruce Viewpoint", desc: "Local life, Old Market, Botanical Gardens, city views.", cost: "Free/Low-cost", transport: "Walk (Roseau), Taxi (Morne Bruce ~$10-15 RT)", rec: "High Priority: Great overview of the city." },
+                    { time: "10:45 AM – 1:15 PM", activity: "Trafalgar Falls OR Emerald Pool", desc: "Choose one: easy viewpoints or scenic swim spot.", cost: "Free/$", transport: "Taxi/Small-group excursion (20-30 min drive)", rec: "Unique natural beauty." },
+                    { time: "1:15 PM – 1:45 PM", activity: "Lunch in Roseau", desc: "Local Creole dishes.", cost: "$-$$", transport: "Walk from taxi drop-off", rec: "Try chicken broth or callaloo." },
+                    { time: "1:45 PM – 3:45 PM", activity: "Champagne Reef Snorkeling", desc: "Volcanic bubbles rise from seabed, clear reef life.", cost: "$–$$", transport: "Short drive/boat (tour dependent)", rec: "MUST-DO! One-of-a-kind snorkel experience.", isMustDo: true },
+                    { time: "3:45 PM – 4:30 PM", activity: "Return to Roseau Port", desc: "", cost: "", transport: "Tour operator/taxi", rec: "" },
+                    { time: "5:00 PM", activity: "Return to Ship", desc: "Allow 1 hour buffer.", cost: "", transport: "", rec: "" }
+                ],
+                costEstimate: 70 // Example estimate
+            },
+            7: {
+                port: "Bridgetown, Barbados",
+                arrival: "7:00 AM",
+                departure: "4:00 PM",
+                mainPlan: [
+                    { time: "7:30 AM – 9:30 AM", activity: "Walk Bridgetown & Parliament Square", desc: "Historic sites, Pelican Craft Market.", cost: "Free", transport: "Walk from cruise port (10-15 min)", rec: "High Priority: UNESCO-listed." },
+                    { time: "9:45 AM – 11:30 AM", activity: "Carlisle Bay Beach", desc: "Easy beach access, swimming, snorkeling shipwrecks.", cost: "Free (rentals extra)", transport: "Short walk/quick taxi", rec: "Calm waters, great for snorkeling." },
+                    { time: "11:30 AM – 12:00 PM", activity: "Lunch in Bridgetown", desc: "Bajan flying fish, macaroni pie.", cost: "$-$$", transport: "Walk from beach", rec: "Authentic Bajan flavors." },
+                    { time: "12:00 PM – 12:30 PM", activity: "Travel to Harrison’s Cave", desc: "", cost: "", transport: "Taxi/Excursion (30-45 min one way)", rec: "Efficient travel." },
+                    { time: "12:30 PM – 2:30 PM", activity: "Harrison’s Cave Tram Tour", desc: "Spectacular underground cave with tram and waterfalls.", cost: "$$", transport: "Taxi/Booked excursion", rec: "MUST-DO! Unique geological highlight.", isMustDo: true },
+                    { time: "2:30 PM – 3:00 PM", activity: "Return to Bridgetown Port", desc: "", cost: "", transport: "Taxi/Excursion", rec: "" },
+                    { time: "3:00 PM", activity: "Return to Ship", desc: "Allow 1 hour buffer.", cost: "", transport: "", rec: "" }
+                ],
+                costEstimate: 90 // Example estimate
+            },
+            8: {
+                port: "St. John’s, Antigua",
+                arrival: "9:30 AM",
+                departure: "5:00 PM",
+                mainPlan: [
+                    { time: "10:00 AM – 12:00 PM", activity: "Dickenson Bay Beach", desc: "Pleasant wide beaches close to port, relaxing, swimming.", cost: "Free", transport: "Short taxi ($15-20 one way)", rec: "Great for relaxing beach time." },
+                    { time: "12:00 PM – 12:15 PM", activity: "Travel to St. John's Market", desc: "", cost: "", transport: "Taxi", rec: "" },
+                    { time: "12:15 PM – 1:15 PM", activity: "St. John’s Market & Historic Center", desc: "Local crafts, fruit stalls, cathedral.", cost: "Free/$", transport: "Walkable from port", rec: "High Priority: Explore local life." },
+                    { time: "1:15 PM – 1:45 PM", activity: "Lunch in St. John's", desc: "Antiguan pepperpot, jerk chicken, fresh seafood.", cost: "$-$$", transport: "Walk from market", rec: "Authentic local dishes." },
+                    { time: "1:45 PM – 2:15 PM", activity: "Travel to Shirley Heights", desc: "", cost: "", transport: "Taxi (20-30 min, $20-30 one way)", rec: "Efficient travel." },
+                    { time: "2:15 PM – 4:00 PM", activity: "Shirley Heights Lookout", desc: "Iconic panoramic viewpoint over harbors.", cost: "$–$$", transport: "Taxi", rec: "MUST-DO! Unforgettable views and cultural vibe.", isMustDo: true },
+                    { time: "4:00 PM – 4:30 PM", activity: "Return to St. John's Port", desc: "", cost: "", transport: "Taxi", rec: "" },
+                    { time: "4:00 PM", activity: "Return to Ship", desc: "Allow 1 hour buffer.", cost: "", transport: "", rec: "" }
+                ],
+                costEstimate: 75 // Example estimate
+            }
+        };
+
+        function createActivityCard(item) {
+            const mustDoTag = item.isMustDo ? `<span class="must-do-tag text-xs font-semibold mr-2 px-2.5 py-0.5 rounded-full">${item.rec.split('!')[0]}!</span>` : '';
+            const recommendation = !item.isMustDo && item.rec ? `<p class="text-sm text-slate-500 mt-2">💡 ${item.rec}</p>` : '';
+
+            return `
+                <div class="bg-white rounded-lg shadow-md p-5 flex">
+                    <div class="w-1/4 pr-4 border-r border-slate-200 text-right">
+                        <p class="font-bold text-teal-700">${item.time}</p>
+                    </div>
+                    <div class="w-3/4 pl-5">
+                        <h4 class="text-lg font-semibold text-slate-800">${item.activity}</h4>
+                        <p class="text-slate-600 mt-1">${item.desc}</p>
+                        <div class="flex items-center flex-wrap gap-x-4 gap-y-2 mt-3 text-sm">
+                            ${mustDoTag}
+                            ${item.cost ? `<span class="font-medium">💰 Cost: ${item.cost}</span>` : ''}
+                            ${item.transport ? `<span class="font-medium">🚗 Transport: ${item.transport}</span>` : ''}
+                        </div>
+                        ${recommendation}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDay(day) {
+            const dayData = itineraryData[day];
+            if (!dayData) {
+                console.error(`No data for Day ${day}`);
+                return;
+            }
+
+            let contentEl = document.getElementById(`day-${day}`);
+            if (!contentEl) {
+                contentEl = document.createElement('section');
+                contentEl.id = `day-${day}`;
+                contentEl.classList.add('content-section', 'space-y-6');
+                document.getElementById('itinerary-content').appendChild(contentEl);
+            }
+            
+            let planToggleHTML = '';
+            if (dayData.altPlan) {
+                planToggleHTML = `
+                    <div class="flex justify-center mb-6 bg-slate-100 p-1 rounded-lg">
+                        <button data-day="${day}" data-plan="mainPlan" class="plan-toggle w-1/2 p-2 rounded-md font-semibold active">Main Plan</button>
+                        <button data-day="${day}" data-plan="altPlan" class="plan-toggle w-1/2 p-2 rounded-md font-semibold">Alternative: Anguilla Trip</button>
+                    </div>
+                `;
+            }
+
+            const mainPlanHTML = dayData.mainPlan.map(createActivityCard).join('');
+            const altPlanHTML = dayData.altPlan ? dayData.altPlan.map(createActivityCard).join('') : '';
+
+            contentEl.innerHTML = `
+                <h3 class="text-3xl font-bold text-slate-800 mb-2">${dayData.port}</h3>
+                <p class="text-md text-slate-500 mb-6">Arrival: ${dayData.arrival} – Departure: ${dayData.departure}</p>
+                ${planToggleHTML}
+                <div id="plan-container-${day}" class="space-y-4">
+                    <div id="mainPlan-${day}" class="plan-content active space-y-4">${mainPlanHTML}</div>
+                    ${dayData.altPlan ? `<div id="altPlan-${day}" class="plan-content hidden space-y-4">${altPlanHTML}</div>` : ''}
+                </div>
+            `;
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const navUl = document.getElementById('day-navigation').querySelector('ul');
+            const contentContainer = document.getElementById('itinerary-content');
+
+            // Populate navigation and render initial content
+            Object.keys(itineraryData).forEach(day => {
+                const dayData = itineraryData[day];
+                const listItem = document.createElement('li');
+                const button = document.createElement('button');
+                button.dataset.day = day;
+                button.classList.add('nav-button', 'w-full', 'text-left', 'p-3', 'rounded-lg', 'font-semibold', 'bg-white', 'shadow-sm', 'hover:bg-teal-500', 'hover:text-white');
+                button.textContent = `Day ${day}: ${dayData.port.split(',')[0].trim()}`;
+                listItem.appendChild(button);
+                navUl.appendChild(listItem);
+
+                // Create content section placeholder
+                const section = document.createElement('section');
+                section.id = `day-${day}`;
+                section.classList.add('content-section', 'space-y-6');
+                contentContainer.appendChild(section);
+
+                renderDay(day); // Render content for each day
+            });
+
+            // Set initial active day (Day 4)
+            document.getElementById('day-4').classList.add('active');
+            navUl.querySelector('button[data-day="4"]').classList.add('active');
+
+            // Navigation click handling
+            navUl.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON' && e.target.closest('.nav-button')) {
+                    const day = e.target.dataset.day;
+                    
+                    document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                    
+                    document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+                    document.getElementById(`day-${day}`).classList.add('active');
+                }
+            });
+
+            // Plan toggle handling
+            contentContainer.addEventListener('click', (e) => {
+                const button = e.target.closest('.plan-toggle');
+                if (button) {
+                    const day = button.dataset.day;
+                    const plan = button.dataset.plan;
+
+                    document.querySelectorAll(`.plan-toggle[data-day="${day}"]`).forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+
+                    document.querySelectorAll(`#plan-container-${day} .plan-content`).forEach(p => p.classList.add('hidden'));
+                    document.getElementById(`${plan}-${day}`).classList.remove('hidden');
+                }
+            });
+            
+            // Chart.js implementation for all days
+            const ctx = document.getElementById('costChart').getContext('2d');
+            const chartLabels = Object.keys(itineraryData).map(day => `Day ${day}: ${itineraryData[day].port.split(',')[0].trim()}`);
+            const chartDataValues = Object.keys(itineraryData).map(day => itineraryData[day].costEstimate);
+
+            const costChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        label: 'Estimated Cost ($USD)',
+                        data: chartDataValues,
+                        backgroundColor: chartLabels.map(() => 'rgba(15, 118, 110, 0.6)'), // teal-700 with opacity
+                        borderColor: chartLabels.map(() => 'rgba(15, 118, 110, 1)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.x !== null) {
+                                        label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.x);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Estimated Cost per Person ($USD)'
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
